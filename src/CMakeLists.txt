@@ -11,6 +11,9 @@ option(ENABLE_ASAN "Enable AddressSanitizer" OFF)
 option(ENABLE_TSAN "Enable ThreadSanitizer" OFF)
 option(PROFILE "Enable profiling support" OFF)
 
+add_compile_options(-fsanitize=address)
+add_link_options(-fsanitize=address)
+
 # whether to compile or instead assume it is prebuilt
 option(POD5_DOWNLOAD "Whether to build POD5" ON) # todo: rename to POD5_COMPILE
 option(HDF5_COMPILE "Compile HDF5" ON)
