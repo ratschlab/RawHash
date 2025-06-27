@@ -91,3 +91,6 @@ test/evaluation/read_mapping/*parameters/
 test/evaluation/read_mapping/s_modify.py
 
 test/evaluation/read_mapping/*.features
+/cmake-build-debug/
+/cmake-build-release/
+.idea
