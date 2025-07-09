@@ -12,3 +12,7 @@
 [submodule "extern/zstd"]
 	path = extern/zstd
 	url = https://github.com/facebook/zstd
+[submodule "extern/pybind11"]
+	path = extern/pybind11
+	url = ../../pybind/pybind11
+	branch = stable

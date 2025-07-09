@@ -155,10 +155,10 @@ std::vector<Alignment> RawHashMapper::map(float* raw_signal, int signal_length) 
         if (reg0->maps[m].ref_id < ri->n_seq) {
             // mapped
             alignments.push_back(Alignment {
-                .contig = (ri->flag & RI_I_SIG_TARGET) ? ri->sig[reg0->maps[m].ref_id].name : ri->seq[reg0->maps[m].ref_id].name,
-                .ref_start = reg0->maps[m].fragment_start_position,
-                .ref_end = reg0->maps[m].fragment_start_position + reg0->maps[m].fragment_length,
-                .is_pos_strand = not reg0->maps[m].rev
+                .ctg = (ri->flag & RI_I_SIG_TARGET) ? ri->sig[reg0->maps[m].ref_id].name : ri->seq[reg0->maps[m].ref_id].name,
+                .r_st = reg0->maps[m].fragment_start_position,
+                .r_en = reg0->maps[m].fragment_start_position + reg0->maps[m].fragment_length,
+                .strand = not reg0->maps[m].rev
             });
         }
     }

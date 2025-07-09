@@ -2,12 +2,13 @@
 
 #include <cstdint>
 #include <vector>
+#include <string>
 
 struct Alignment {
-	const char* contig;
-	uint32_t ref_start;
-	uint32_t ref_end; // exclusive
-	bool is_pos_strand;
+	std::string ctg;
+	uint32_t r_st;
+	uint32_t r_en; // exclusive
+	int strand;
 };
 
 class RawHashMapper {

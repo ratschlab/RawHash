@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.15)
 project(RawHash2)
 
 # option(USE_CCACHE "Use ccache to speed up rebuilds" ON)
@@ -45,7 +45,8 @@ set(CMAKE_VERBOSE_MAKEFILE TRUE CACHE BOOL "verbose makefile" FORCE) # print com
 enable_ccache()
 set_alternate_linker(mold)
 
-add_executable(rawhash2_builtin main.cpp)
+add_executable(rawhash2_builtin main.cpp
+        pybindings.cpp)
 setup_rawhashlike_target(rawhash2_builtin)
 
 add_library(rawhash2_lib SHARED rawhash_wrapper.cpp rawhash_wrapper.hpp)
@@ -62,3 +63,16 @@ add_executable(rawhash2 wrapper_example.cpp)
 target_link_libraries(rawhash2 PRIVATE rawhash2_lib)
 set_target_properties(rawhash2 PROPERTIES INSTALL_RPATH $ORIGIN/../lib)
 install(TARGETS rawhash2 RUNTIME DESTINATION bin)
+
+#add_subdirectory(../extern/pybind11)
+#find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+#message(STATUS "Python3_EXECUTABLE: ${Python3_EXECUTABLE}")
+#message(STATUS "Python3_INCLUDE_DIRS: ${Python3_INCLUDE_DIRS}")
+#message(STATUS "Python3_LIBRARIES: ${Python3_LIBRARIES}")
+#
+#set(PYBIND11_FINDPYTHON ON)
+#pybind11_add_module(_core pybindings.cpp)
+#
+##target_compile_options(_core PRIVATE -fpermissive -mavx)
+#target_link_libraries(_core PUBLIC rawhash2_lib pybind11::headers)
+#install(TARGETS _core DESTINATION pyrawhash)
