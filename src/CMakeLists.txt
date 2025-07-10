@@ -15,15 +15,15 @@ add_compile_options(-fsanitize=address)
 add_link_options(-fsanitize=address)
 
 # whether to compile or instead assume it is prebuilt
-option(POD5_DOWNLOAD "Whether to build POD5" ON) # todo: rename to POD5_COMPILE
-option(HDF5_COMPILE "Compile HDF5" ON)
-option(SLOW5_COMPILE "Compile slow5lib" ON)
+option(POD5_DOWNLOAD "Whether to build POD5" OFF) # todo: rename to POD5_COMPILE
+option(HDF5_COMPILE "Compile HDF5" OFF)
+option(SLOW5_COMPILE "Compile slow5lib" OFF)
 
 # features to enable/disable in RawHash
 # option(NOPOD5 "Disable POD5 in build" OFF) # todo: figure out how to enable shared libs
 option(NOPOD5 "Disable POD5 in build" ON)
-option(NOHDF5 "Disable HDF5 in build" OFF)
-option(NOSLOW5 "Disable SLOW5 in build" OFF)
+option(NOHDF5 "Disable HDF5 in build" ON)
+option(NOSLOW5 "Disable SLOW5 in build" ON)
 option(RUCLIENT_ENABLED "Enable ReadUntil client" OFF)
 
 set(POD5_DIR "" CACHE PATH "Path to POD5 directory (already built or where it should be built)")
@@ -45,8 +45,7 @@ set(CMAKE_VERBOSE_MAKEFILE TRUE CACHE BOOL "verbose makefile" FORCE) # print com
 enable_ccache()
 set_alternate_linker(mold)
 
-add_executable(rawhash2_builtin main.cpp
-        pybindings.cpp)
+add_executable(rawhash2_builtin main.cpp)
 setup_rawhashlike_target(rawhash2_builtin)
 
 add_library(rawhash2_lib SHARED rawhash_wrapper.cpp rawhash_wrapper.hpp)

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <vector>
 #include <string>
+#include <iostream>
 
 struct Alignment {
 	std::string ctg;
