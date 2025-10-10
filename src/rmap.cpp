@@ -9,6 +9,7 @@
 #include "sequence_until.h"
 #include "dtw.h"
 #include "chain.h"
+#include "khash.h"
 
 #include <math.h>
 #include <float.h>  // for FLT_MAX
