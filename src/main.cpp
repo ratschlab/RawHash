@@ -253,265 +253,261 @@ const char* ri_maptopt_dtw_mode_to_string(uint32_t dtw_border_constraint){
 	}
 }
 
-int main(int argc, char *argv[])
-{
+config_t parse_options(int argc, char *argv[]) {
+	config_t config;
 	const char *opt_str = "k:d:p:e:q:w:n:o:t:K:x:h";
-	ketopt_t o = KETOPT_INIT;
-	ri_mapopt_t opt;
-  	ri_idxopt_t ipt;
-	int c, n_threads = 3, io_n_threads = 1;
-	// int n_parts;
-	char *fnw = 0, *fpore = 0, *s;
+	config.o = KETOPT_INIT;
+	int c;
+	char *s;
 	FILE *fp_help = stderr;
-	ri_idx_reader_t *idx_rdr;
-	ri_idx_t *ri;
+
 
 	ri_verbose = 3;
 	liftrlimit();
 	ri_realtime0 = ri_realtime();
-	ri_set_opt(0, &ipt, &opt);
+	ri_set_opt(0, &config.ipt, &config.opt);
 
 	// test command line options and apply option -x/preset first
-	while ((c = ketopt(&o, argc, argv, 1, opt_str, long_options)) >= 0) {
+	while ((c = ketopt(&config.o, argc, argv, 1, opt_str, long_options)) >= 0) {
 		if (c == 'x') {
-			if (ri_set_opt(o.arg, &ipt, &opt) < 0) {
-				fprintf(stderr, "[ERROR] unknown preset '%s'\n", o.arg);
-				return 1;
+			if (ri_set_opt(config.o.arg, &config.ipt, &config.opt) < 0) {
+				fprintf(stderr, "[ERROR] unknown preset '%s'\n", config.o.arg);
+				return config;
 			}
 		} else if (c == ':') {
 			fprintf(stderr, "[ERROR] missing option argument\n");
-			return 1;
+			return config;
 		} else if (c == '?') {
-			fprintf(stderr, "[ERROR] unknown option in \"%s\"\n", argv[o.i - 1]);
-			return 1;
+			fprintf(stderr, "[ERROR] unknown option in \"%s\"\n", argv[config.o.i - 1]);
+			return config;
 		}
 	}
-	o = KETOPT_INIT;
+	config.o = KETOPT_INIT;
 
-	while ((c = ketopt(&o, argc, argv, 1, opt_str, long_options)) >= 0) {
-		if (c == 'd') fnw = o.arg;
-		else if (c == 'p') fpore = o.arg;
-		else if (c == 'k') ipt.k = atoi(o.arg);
-		else if (c == 'e') ipt.e = atoi(o.arg);
-		else if (c == 'q') ipt.q = atoi(o.arg);
-		else if (c == 'w') ipt.w = atoi(o.arg);
-		else if (c == 'n') ipt.n = atoi(o.arg);
-		else if (c == 't') n_threads = atoi(o.arg);
-		else if (c == 'v') ri_verbose = atoi(o.arg);
-		else if (c == 'K') {opt.mini_batch_size = mm_parse_num(o.arg);}
+	while ((c = ketopt(&config.o, argc, argv, 1, opt_str, long_options)) >= 0) {
+		if (c == 'd') config.fnw = config.o.arg;
+		else if (c == 'p') config.fpore = config.o.arg;
+		else if (c == 'k') config.ipt.k = atoi(config.o.arg);
+		else if (c == 'e') config.ipt.e = atoi(config.o.arg);
+		else if (c == 'q') config.ipt.q = atoi(config.o.arg);
+		else if (c == 'w') config.ipt.w = atoi(config.o.arg);
+		else if (c == 'n') config.ipt.n = atoi(config.o.arg);
+		else if (c == 't') config.n_threads = atoi(config.o.arg);
+		else if (c == 'v') ri_verbose = atoi(config.o.arg);
+		else if (c == 'K') {config.opt.mini_batch_size = mm_parse_num(config.o.arg);}
 		else if (c == 'h') fp_help = stdout;
 		else if (c == 'o') {
-			if (strcmp(o.arg, "-") != 0) {
-				if (freopen(o.arg, "wb", stdout) == NULL) {
-					fprintf(stderr, "[ERROR]\033[1;31m failed to write the output to file '%s'\033[0m: %s\n", o.arg, strerror(errno));
+			if (strcmp(config.o.arg, "-") != 0) {
+				if (freopen(config.o.arg, "wb", stdout) == NULL) {
+					fprintf(stderr, "[ERROR]\033[1;31m failed to write the output to file '%s'\033[0m: %s\n", config.o.arg, strerror(errno));
 					exit(1);
 				}
 			}
 		}
-		else if (c == 300) ipt.lev_col = atoi(o.arg);// --level_column
+		else if (c == 300) config.ipt.lev_col = atoi(config.o.arg);// --level_column
 		else if (c == 301) { //--q-mid-occ
-			opt.min_mid_occ = strtol(o.arg, &s, 10); // min
-			if (*s == ',') opt.max_mid_occ = strtol(s + 1, &s, 10); //max
-			// opt.q_mid_occ = atoi(o.arg);// --q-mid-occ
+			config.opt.min_mid_occ = strtol(config.o.arg, &s, 10); // min
+			if (*s == ',') config.opt.max_mid_occ = strtol(s + 1, &s, 10); //max
+			// config.opt.q_mid_occ = atoi(config.o.arg);// --q-mid-occ
 		}
-		else if (c == 302) opt.mid_occ_frac = atof(o.arg);// --occ-frac
-		else if (c == 303) opt.min_events = (uint32_t)atoi(o.arg); // --min-events
-		else if (c == 304) opt.bw = atoi(o.arg);// --bw
-		else if (c == 305) opt.max_target_gap_length = atoi(o.arg);// --max-target-gap
-		else if (c == 306) opt.max_query_gap_length = atoi(o.arg);// --max-query-gap
-		else if (c == 307) opt.min_num_anchors = atoi(o.arg);// --min-anchors
-		else if (c == 308) opt.min_chaining_score = atoi(o.arg);// --min-score
-		else if (c == 309) opt.chain_gap_scale = atof(o.arg);// --chain-gap-scale
-		else if (c == 310) opt.chain_skip_scale = atof(o.arg);// --chain-skip-scale
-		else if (c == 311) opt.best_n = atoi(o.arg);// --best-chains
-		else if (c == 312) opt.mask_level = atof(o.arg);// --primary-ratio
-		else if (c == 313) opt.mask_len = atoi(o.arg);// --primary-length
-		else if (c == 314) opt.max_num_skips = atoi(o.arg);// --max-skips
-		else if (c == 315) opt.max_chain_iter = atoi(o.arg);// --max-iterations
-		else if (c == 316) opt.flag |= RI_M_RMQ; // --rmq
-		else if (c == 317) opt.rmq_inner_dist = atoi(o.arg); // --rmq-inner-dist
-		else if (c == 318) opt.rmq_size_cap = atoi(o.arg); // --rmq-size-cap
-		else if (c == 319) opt.bw_long = atoi(o.arg);// --bw-long
-		else if (c == 320) opt.max_num_chunk = atoi(o.arg);// --max-chunks
-		else if (c == 321) opt.min_mapq = atoi(o.arg);// --min-mapq
-		else if (c == 322) opt.alt_drop = atof(o.arg);// --alt-drop
-		else if (c == 323) opt.w_besta = atof(o.arg);// --w-besta
-		else if (c == 324) opt.w_bestma = atof(o.arg);// --w-bestma
-		else if (c == 325) opt.w_bestq = atof(o.arg);// --w-bestq
-		else if (c == 326) opt.w_bestmq = atof(o.arg);// --w-bestmq
-		else if (c == 327) opt.w_bestmc = atof(o.arg);// --w-bestmc
-		else if (c == 328) opt.w_threshold = atof(o.arg);// --w-threshold
+		else if (c == 302) config.opt.mid_occ_frac = atof(config.o.arg);// --occ-frac
+		else if (c == 303) config.opt.min_events = (uint32_t)atoi(config.o.arg); // --min-events
+		else if (c == 304) config.opt.bw = atoi(config.o.arg);// --bw
+		else if (c == 305) config.opt.max_target_gap_length = atoi(config.o.arg);// --max-target-gap
+		else if (c == 306) config.opt.max_query_gap_length = atoi(config.o.arg);// --max-query-gap
+		else if (c == 307) config.opt.min_num_anchors = atoi(config.o.arg);// --min-anchors
+		else if (c == 308) config.opt.min_chaining_score = atoi(config.o.arg);// --min-score
+		else if (c == 309) config.opt.chain_gap_scale = atof(config.o.arg);// --chain-gap-scale
+		else if (c == 310) config.opt.chain_skip_scale = atof(config.o.arg);// --chain-skip-scale
+		else if (c == 311) config.opt.best_n = atoi(config.o.arg);// --best-chains
+		else if (c == 312) config.opt.mask_level = atof(config.o.arg);// --primary-ratio
+		else if (c == 313) config.opt.mask_len = atoi(config.o.arg);// --primary-length
+		else if (c == 314) config.opt.max_num_skips = atoi(config.o.arg);// --max-skips
+		else if (c == 315) config.opt.max_chain_iter = atoi(config.o.arg);// --max-iterations
+		else if (c == 316) config.opt.flag |= RI_M_RMQ; // --rmq
+		else if (c == 317) config.opt.rmq_inner_dist = atoi(config.o.arg); // --rmq-inner-dist
+		else if (c == 318) config.opt.rmq_size_cap = atoi(config.o.arg); // --rmq-size-cap
+		else if (c == 319) config.opt.bw_long = atoi(config.o.arg);// --bw-long
+		else if (c == 320) config.opt.max_num_chunk = atoi(config.o.arg);// --max-chunks
+		else if (c == 321) config.opt.min_mapq = atoi(config.o.arg);// --min-mapq
+		else if (c == 322) config.opt.alt_drop = atof(config.o.arg);// --alt-drop
+		else if (c == 323) config.opt.w_besta = atof(config.o.arg);// --w-besta
+		else if (c == 324) config.opt.w_bestma = atof(config.o.arg);// --w-bestma
+		else if (c == 325) config.opt.w_bestq = atof(config.o.arg);// --w-bestq
+		else if (c == 326) config.opt.w_bestmq = atof(config.o.arg);// --w-bestmq
+		else if (c == 327) config.opt.w_bestmc = atof(config.o.arg);// --w-bestmc
+		else if (c == 328) config.opt.w_threshold = atof(config.o.arg);// --w-threshold
 		else if (c == 329) {
-			opt.bp_per_sec = atoi(o.arg); opt.sample_per_base = (float)opt.sample_rate / opt.bp_per_sec;
-			ipt.bp_per_sec = atoi(o.arg); ipt.sample_per_base = (float)ipt.sample_rate / ipt.bp_per_sec;
+			config.opt.bp_per_sec = atoi(config.o.arg); config.opt.sample_per_base = (float)config.opt.sample_rate / config.opt.bp_per_sec;
+			config.ipt.bp_per_sec = atoi(config.o.arg); config.ipt.sample_per_base = (float)config.ipt.sample_rate / config.ipt.bp_per_sec;
 		}// --bp-per-sec
 		else if (c == 330) {
-			opt.sample_rate = atoi(o.arg); opt.sample_per_base = (float)opt.sample_rate / opt.bp_per_sec;
-			ipt.sample_rate = atoi(o.arg); ipt.sample_per_base = (float)ipt.sample_rate / ipt.bp_per_sec;
+			config.opt.sample_rate = atoi(config.o.arg); config.opt.sample_per_base = (float)config.opt.sample_rate / config.opt.bp_per_sec;
+			config.ipt.sample_rate = atoi(config.o.arg); config.ipt.sample_per_base = (float)config.ipt.sample_rate / config.ipt.bp_per_sec;
 		}// --sample-rate
-		else if (c == 331) opt.chunk_size = atoi(o.arg);// --chunk-size
-		else if (c == 332) {opt.window_length1 = atoi(o.arg); ipt.window_length1 = atoi(o.arg);}// --seg-window-length1
-		else if (c == 333) {opt.window_length2 = atoi(o.arg); ipt.window_length2 = atoi(o.arg);}// --seg-window-length2
-		else if (c == 334) {opt.threshold1 = atof(o.arg); ipt.threshold1 = atof(o.arg);}// --seg-threshold1
-		else if (c == 335) {opt.threshold2 = atof(o.arg); ipt.threshold2 = atof(o.arg);}// --seg-threshold2
-		else if (c == 336) {opt.peak_height = atof(o.arg); ipt.peak_height = atof(o.arg);}// --seg-peak-height
-		else if (c == 337) opt.flag |= RI_M_SEQUENCEUNTIL;// --sequence-until
-		else if (c == 338) opt.t_threshold = atof(o.arg);// --threshold
-		else if (c == 339) opt.tn_samples = atoi(o.arg);// --n-samples
-		else if (c == 340) opt.ttest_freq = atoi(o.arg);// --test-frequency
-		else if (c == 341) opt.tmin_reads = atoi(o.arg);// --min-reads
-		else if (c == 342) opt.mid_occ_frac = atof(o.arg);// --occ-frac
+		else if (c == 331) config.opt.chunk_size = atoi(config.o.arg);// --chunk-size
+		else if (c == 332) {config.opt.window_length1 = atoi(config.o.arg); config.ipt.window_length1 = atoi(config.o.arg);}// --seg-window-length1
+		else if (c == 333) {config.opt.window_length2 = atoi(config.o.arg); config.ipt.window_length2 = atoi(config.o.arg);}// --seg-window-length2
+		else if (c == 334) {config.opt.threshold1 = atof(config.o.arg); config.ipt.threshold1 = atof(config.o.arg);}// --seg-threshold1
+		else if (c == 335) {config.opt.threshold2 = atof(config.o.arg); config.ipt.threshold2 = atof(config.o.arg);}// --seg-threshold2
+		else if (c == 336) {config.opt.peak_height = atof(config.o.arg); config.ipt.peak_height = atof(config.o.arg);}// --seg-peak-height
+		else if (c == 337) config.opt.flag |= RI_M_SEQUENCEUNTIL;// --sequence-until
+		else if (c == 338) config.opt.t_threshold = atof(config.o.arg);// --threshold
+		else if (c == 339) config.opt.tn_samples = atoi(config.o.arg);// --n-samples
+		else if (c == 340) config.opt.ttest_freq = atoi(config.o.arg);// --test-frequency
+		else if (c == 341) config.opt.tmin_reads = atoi(config.o.arg);// --min-reads
+		else if (c == 342) config.opt.mid_occ_frac = atof(config.o.arg);// --occ-frac
 		else if (c == 343) { // --depletion
-			opt.best_n = 5; opt.min_mapq = 10; opt.w_threshold = 0.50f;
-			opt.min_num_anchors = 2; opt.min_chaining_score = 15; opt.chain_skip_scale = 0.0f;
+			config.opt.best_n = 5; config.opt.min_mapq = 10; config.opt.w_threshold = 0.50f;
+			config.opt.min_num_anchors = 2; config.opt.min_chaining_score = 15; config.opt.chain_skip_scale = 0.0f;
 		}
-		else if (c == 344) {ipt.flag |= RI_I_STORE_SIG;} // --store-sig
-		else if (c == 345) {ipt.flag |= RI_I_SIG_TARGET;} // --sig-target
-		else if (c == 346) {opt.flag |= RI_M_NO_ADAPTIVE;} // --disable-adaptive
-		else if (c == 347) {ipt.diff = atof(o.arg);} // --sig-diff
-		else if (c == 348) {opt.flag |= RI_M_ALIGN;} // --align
-		else if (c == 349) opt.flag |= RI_M_DTW_EVALUATE_CHAINS; // --dtw-evaluate-chains
-		else if (c == 350) opt.flag |= RI_M_DTW_OUTPUT_CIGAR; // --dtw-output-cigar
+		else if (c == 344) {config.ipt.flag |= RI_I_STORE_SIG;} // --store-sig
+		else if (c == 345) {config.ipt.flag |= RI_I_SIG_TARGET;} // --sig-target
+		else if (c == 346) {config.opt.flag |= RI_M_NO_ADAPTIVE;} // --disable-adaptive
+		else if (c == 347) {config.ipt.diff = atof(config.o.arg);} // --sig-diff
+		else if (c == 348) {config.opt.flag |= RI_M_ALIGN;} // --align
+		else if (c == 349) config.opt.flag |= RI_M_DTW_EVALUATE_CHAINS; // --dtw-evaluate-chains
+		else if (c == 350) config.opt.flag |= RI_M_DTW_OUTPUT_CIGAR; // --dtw-output-cigar
 		else if (c == 351) { //--dtw-border-constraint
-			if(ri_mapopt_parse_dtw_border_constraint(&opt, o.arg) != 0){
-				fprintf(stderr, "[ERROR] unknown DTW border constraint in \"%s\"\n", argv[o.i - 1]);
-				return 1;
+			if(ri_mapopt_parse_dtw_border_constraint(&config.opt, config.o.arg) != 0){
+				fprintf(stderr, "[ERROR] unknown DTW border constraint in \"%s\"\n", argv[config.o.i - 1]);
+				return config;
 			}
 		}
-		else if (c == 352) opt.flag |= RI_M_DTW_LOG_SCORES; // --dtw-log-scores
-		else if (c == 353) opt.flag |= RI_M_DISABLE_CHAININGSCORE_FILTERING; // --no-chainingscore-filtering
-		else if (c == 354) opt.dtw_match_bonus = atof(o.arg); // --dtw-match-bonus
-		else if (c == 355) opt.flag |= RI_M_OUTPUT_CHAINS; // --output-chains
+		else if (c == 352) config.opt.flag |= RI_M_DTW_LOG_SCORES; // --dtw-log-scores
+		else if (c == 353) config.opt.flag |= RI_M_DISABLE_CHAININGSCORE_FILTERING; // --no-chainingscore-filtering
+		else if (c == 354) config.opt.dtw_match_bonus = atof(config.o.arg); // --dtw-match-bonus
+		else if (c == 355) config.opt.flag |= RI_M_OUTPUT_CHAINS; // --output-chains
 		else if (c == 356) { //dtw-fill-method
-			if(ri_mapopt_parse_dtw_fill_method(&opt, o.arg) != 0){
-				fprintf(stderr, "[ERROR] unknown DTW fill method in \"%s\"\n", argv[o.i - 1]);
-				return 1;
+			if(ri_mapopt_parse_dtw_fill_method(&config.opt, config.o.arg) != 0){
+				fprintf(stderr, "[ERROR] unknown DTW fill method in \"%s\"\n", argv[config.o.i - 1]);
+				return config;
 			}
 		}
-		else if (c == 357) opt.dtw_min_score = atof(o.arg); // --dtw-min-score
-		else if (c == 358) opt.flag |= RI_M_LOG_ANCHORS; // --log-anchors
-		else if (c == 359) opt.flag |= RI_M_LOG_NUM_ANCHORS; // --log-num-anchors
-		else if (c == 360) opt.rev_col_limit = atoi(o.arg); // --rev-collision-count
-		else if (c == 361) opt.chn_rev_bump = atof(o.arg); // --chn-rev-bump
-		// else if (c == 362) {ipt.flag |= RI_I_REV_QUERY;}// --rev-query
+		else if (c == 357) config.opt.dtw_min_score = atof(config.o.arg); // --dtw-min-score
+		else if (c == 358) config.opt.flag |= RI_M_LOG_ANCHORS; // --log-anchors
+		else if (c == 359) config.opt.flag |= RI_M_LOG_NUM_ANCHORS; // --log-num-anchors
+		else if (c == 360) config.opt.rev_col_limit = atoi(config.o.arg); // --rev-collision-count
+		else if (c == 361) config.opt.chn_rev_bump = atof(config.o.arg); // --chn-rev-bump
+		// else if (c == 362) {config.ipt.flag |= RI_I_REV_QUERY;}// --rev-query
 		else if (c == 363) { // --r10
-			ipt.k = 9;
+			config.ipt.k = 9;
 
-			ipt.window_length1 = 3; ipt.window_length2 = 6;
-			ipt.threshold1 = 6.5f; ipt.threshold2 = 4.0f;  
-			ipt.peak_height = 0.2f;
+			config.ipt.window_length1 = 3; config.ipt.window_length2 = 6;
+			config.ipt.threshold1 = 6.5f; config.ipt.threshold2 = 4.0f;
+			config.ipt.peak_height = 0.2f;
 
-			opt.window_length1 = 3; opt.window_length2 = 6;
-			opt.threshold1 = 6.5f; opt.threshold2 = 4.0f;
-			opt.peak_height = 0.2f;
+			config.opt.window_length1 = 3; config.opt.window_length2 = 6;
+			config.opt.threshold1 = 6.5f; config.opt.threshold2 = 4.0f;
+			config.opt.peak_height = 0.2f;
 
-			opt.chain_gap_scale = 1.2f;
+			config.opt.chain_gap_scale = 1.2f;
 
-			opt.bp_per_sec = 400;
-			ipt.bp_per_sec = 400;
-			opt.sample_rate = 5000; opt.sample_per_base = (float)opt.sample_rate / opt.bp_per_sec;
-			ipt.sample_rate = 5000; ipt.sample_per_base = (float)ipt.sample_rate / ipt.bp_per_sec;
+			config.opt.bp_per_sec = 400;
+			config.ipt.bp_per_sec = 400;
+			config.opt.sample_rate = 5000; config.opt.sample_per_base = (float)config.opt.sample_rate / config.opt.bp_per_sec;
+			config.ipt.sample_rate = 5000; config.ipt.sample_per_base = (float)config.ipt.sample_rate / config.ipt.bp_per_sec;
 
 			// io->fine_range = 0.6;
 			// mo->min_mapq = 5, mo->min_chaining_score = 10, mo->chain_gap_scale = 0.6f;
 		}
-		else if (c == 364) {ipt.fine_min = atof(o.arg);}// --fine-min
-		else if (c == 365) {ipt.fine_max = atof(o.arg);}// --fine-max
-		else if (c == 366) {ipt.fine_range = atof(o.arg);}// --fine-range
-		else if (c == 367) {ipt.flag |= RI_I_OUT_QUANTIZE; ipt.flag |= RI_I_SIG_TARGET;}// --out-quantize
-		else if (c == 368) {ipt.flag |= RI_I_NO_EVENT_DETECTION;}// --no-event-detection
-		else if (c == 369) {io_n_threads = atoi(o.arg);}// --io-thread
-		else if (c == 370) opt.min_chaining_score2 = atoi(o.arg);// --min-score2
-		else if (c == 371) {puts(RH_VERSION); return 0;}// --version
-		else if (c == 'V') {puts(RH_VERSION); return 0;}
+		else if (c == 364) {config.ipt.fine_min = atof(config.o.arg);}// --fine-min
+		else if (c == 365) {config.ipt.fine_max = atof(config.o.arg);}// --fine-max
+		else if (c == 366) {config.ipt.fine_range = atof(config.o.arg);}// --fine-range
+		else if (c == 367) {config.ipt.flag |= RI_I_OUT_QUANTIZE; config.ipt.flag |= RI_I_SIG_TARGET;}// --out-quantize
+		else if (c == 368) {config.ipt.flag |= RI_I_NO_EVENT_DETECTION;}// --no-event-detection
+		else if (c == 369) {config.io_n_threads = atoi(config.o.arg);}// --io-thread
+		else if (c == 370) config.opt.min_chaining_score2 = atoi(config.o.arg);// --min-score2
+		else if (c == 371) {puts(RH_VERSION); return config;}// --version
+		else if (c == 'V') {puts(RH_VERSION); return config;}
 	}
 
-	if (argc == o.ind || fp_help == stdout) {
+	if (argc == config.o.ind || fp_help == stdout) {
 		fprintf(fp_help, "Usage: rawhash [options] <target.fa>|<target.idx> [query.fast5] [...]\n");
 		fprintf(fp_help, "Options:\n");
 
 		fprintf(fp_help, "    --version     show version number\n");
-		
+
 		fprintf(fp_help, "  K-mer (pore) Model:\n");
 		fprintf(fp_help, "    -p FILE      pore model FILE [].\n");
-		fprintf(fp_help, "    -k INT       size of the k-mers in the pore model [%d]. This is usually 6 for R9.4 and 9 for R10.\n", ipt.k);
-		fprintf(fp_help, "    --level_column INT       0-based column index where the mean values are stored in the pore file [%d]. This is usually 1 for both R9.4 and R10.\n", ipt.lev_col);
-		
+		fprintf(fp_help, "    -k INT       size of the k-mers in the pore model [%d]. This is usually 6 for R9.4 and 9 for R10.\n", config.ipt.k);
+		fprintf(fp_help, "    --level_column INT       0-based column index where the mean values are stored in the pore file [%d]. This is usually 1 for both R9.4 and R10.\n", config.ipt.lev_col);
+
 		fprintf(fp_help, "\n  Indexing:\n");
 		fprintf(fp_help, "    -d FILE     [Strongly recommended to create before mapping] dump index to FILE [].\n");
-		fprintf(fp_help, "    -e INT     number of events concatanated in a single hash (usually no larger than 10). Also applies during mapping [%d].\n", ipt.e);
-		fprintf(fp_help, "    -q INT     Number of bits to use for quantization [%d]. Number of quantized buckets are created accordingly (2^INT).\n", ipt.q);
-		fprintf(fp_help, "    -w INT     minimizer window size [%d]. Enables minimizer-based seeding in indexing and mapping (may reduce accuracy but improves the performance and memory space efficiency).\n", ipt.w);
+		fprintf(fp_help, "    -e INT     number of events concatanated in a single hash (usually no larger than 10). Also applies during mapping [%d].\n", config.ipt.e);
+		fprintf(fp_help, "    -q INT     Number of bits to use for quantization [%d]. Number of quantized buckets are created accordingly (2^INT).\n", config.ipt.q);
+		fprintf(fp_help, "    -w INT     minimizer window size [%d]. Enables minimizer-based seeding in indexing and mapping (may reduce accuracy but improves the performance and memory space efficiency).\n", config.ipt.w);
 		fprintf(fp_help, "    --store-sig      Stores the target signal in the index file.\n");
 		fprintf(fp_help, "    --sig-target     The target sequence (reference) contains signals rather than base characters.\n");
-		fprintf(fp_help, "    --sig-diff FLOAT    [Advanced] Signal value (FLOAT) difference between two consecutive events to be packed together in a single hash value [%g].\n", ipt.diff);
+		fprintf(fp_help, "    --sig-diff FLOAT    [Advanced] Signal value (FLOAT) difference between two consecutive events to be packed together in a single hash value [%g].\n", config.ipt.diff);
 
-		// fprintf(fp_help, "    -n NUM     number of consecutive seeds to use for BLEND-based seeding [%d]. Enables the BLEND mechanism (may improve accuracy but reduces the performance at the moment)\n", ipt.n);
-		
+		// fprintf(fp_help, "    -n NUM     number of consecutive seeds to use for BLEND-based seeding [%d]. Enables the BLEND mechanism (may improve accuracy but reduces the performance at the moment)\n", config.ipt.n);
+
 		fprintf(fp_help, "\n  Seeding:\n");
-		fprintf(fp_help, "    --q-mid-occ INT1[,INT2]     Lower and upper bounds of k-mer occurrences [%d, %d]. The final k-mer occurrence threshold is max{INT1, min{INT2, --occ-frac}}. This option prevents excessively small or large -f estimated from the input reference.\n", opt.min_mid_occ, opt.max_mid_occ);
-		// fprintf(fp_help, "    --occ-frac FLOAT     Discard a query seed if its occurrence is higher than FLOAT fraction of all query seeds [%g]. Set 0 to disable. [Note: Both --q-mid-occ and --occ-frac should be met for a seed to be discarded].\n", opt.q_occ_frac);
-		
+		fprintf(fp_help, "    --q-mid-occ INT1[,INT2]     Lower and upper bounds of k-mer occurrences [%d, %d]. The final k-mer occurrence threshold is max{INT1, min{INT2, --occ-frac}}. This option prevents excessively small or large -f estimated from the input reference.\n", config.opt.min_mid_occ, config.opt.max_mid_occ);
+		// fprintf(fp_help, "    --occ-frac FLOAT     Discard a query seed if its occurrence is higher than FLOAT fraction of all query seeds [%g]. Set 0 to disable. [Note: Both --q-mid-occ and --occ-frac should be met for a seed to be discarded].\n", config.opt.q_occ_frac);
+
 		fprintf(fp_help, "\n  Chaining Parameters:\n");
-		fprintf(fp_help, "    --min-events INT     minimum number of INT events in a chunk to start chain elongation [%u].\n", opt.min_events);
-		fprintf(fp_help, "    --bw INT     maximum INT gap length in a chain [%d].\n", opt.bw);
-		fprintf(fp_help, "    --max-target-gap INT     maximum INT target gap length in a chain [%d].\n", opt.max_target_gap_length);
-		fprintf(fp_help, "    --max-query-gap INT     maximum INT query gap length in a chain [%d].\n", opt.max_query_gap_length);
-		fprintf(fp_help, "    --min-anchors INT     chain is discarded if it contains less than INT number of anchors [%d].\n", opt.min_num_anchors);
-		fprintf(fp_help, "    --best-chains INT     best INT secondary chains to keep with their primary chains when making the mapping decisions [%d]\n", opt.best_n);
-		fprintf(fp_help, "    --min-score INT     chain is discarded if its score is < INT [%d]\n", opt.min_chaining_score);
-		fprintf(fp_help, "    --chain-gap-scale FLOAT     [Advanced] Determines [chain gap penalty] = FLOAT * 0.01 * e  [%g]\n", opt.chain_gap_scale);
-		fprintf(fp_help, "    --chain-skip-scale FLOAT     [Advanced] Determines [chain skip penalty] = FLOAT * 0.01 * e  [%g]\n", opt.chain_skip_scale);
-		// fprintf(fp_help, "    --chain-match-score INT     [Advanced] Match score (Used in MAPQ and Primary chain identification) [%d]\n", opt.a);
-		fprintf(fp_help, "    --primary-ratio FLOAT     [Advanced] The chain is primary if its region ratio uncovered by other chains is larger than FLOAT [%g]\n", opt.mask_level);
-		fprintf(fp_help, "    --primary-length INT     [Advanced] The chain is primary if its region length uncovered by other chains is larger than INT [%d]\n", opt.mask_len);
-		fprintf(fp_help, "    --max-skips INT     [Advanced] stop looking for a predecessor for an anchor if the best predecessor is not updated after INT many iterations [%d]\n", opt.max_num_skips);
-		fprintf(fp_help, "    --max-iterations INT     [Advanced] maximum INT number predecessor anchors to check to calculate the best score for an anchor [%d]\n", opt.max_chain_iter);
+		fprintf(fp_help, "    --min-events INT     minimum number of INT events in a chunk to start chain elongation [%u].\n", config.opt.min_events);
+		fprintf(fp_help, "    --bw INT     maximum INT gap length in a chain [%d].\n", config.opt.bw);
+		fprintf(fp_help, "    --max-target-gap INT     maximum INT target gap length in a chain [%d].\n", config.opt.max_target_gap_length);
+		fprintf(fp_help, "    --max-query-gap INT     maximum INT query gap length in a chain [%d].\n", config.opt.max_query_gap_length);
+		fprintf(fp_help, "    --min-anchors INT     chain is discarded if it contains less than INT number of anchors [%d].\n", config.opt.min_num_anchors);
+		fprintf(fp_help, "    --best-chains INT     best INT secondary chains to keep with their primary chains when making the mapping decisions [%d]\n", config.opt.best_n);
+		fprintf(fp_help, "    --min-score INT     chain is discarded if its score is < INT [%d]\n", config.opt.min_chaining_score);
+		fprintf(fp_help, "    --chain-gap-scale FLOAT     [Advanced] Determines [chain gap penalty] = FLOAT * 0.01 * e  [%g]\n", config.opt.chain_gap_scale);
+		fprintf(fp_help, "    --chain-skip-scale FLOAT     [Advanced] Determines [chain skip penalty] = FLOAT * 0.01 * e  [%g]\n", config.opt.chain_skip_scale);
+		// fprintf(fp_help, "    --chain-match-score INT     [Advanced] Match score (Used in MAPQ and Primary chain identification) [%d]\n", config.opt.a);
+		fprintf(fp_help, "    --primary-ratio FLOAT     [Advanced] The chain is primary if its region ratio uncovered by other chains is larger than FLOAT [%g]\n", config.opt.mask_level);
+		fprintf(fp_help, "    --primary-length INT     [Advanced] The chain is primary if its region length uncovered by other chains is larger than INT [%d]\n", config.opt.mask_len);
+		fprintf(fp_help, "    --max-skips INT     [Advanced] stop looking for a predecessor for an anchor if the best predecessor is not updated after INT many iterations [%d]\n", config.opt.max_num_skips);
+		fprintf(fp_help, "    --max-iterations INT     [Advanced] maximum INT number predecessor anchors to check to calculate the best score for an anchor [%d]\n", config.opt.max_chain_iter);
 		fprintf(fp_help, "    --rmq     [Advanced] Uses RMQ-based chaining. Faster but less accurate than default (DP)\n");
-		fprintf(fp_help, "    --rmq-inner-dist INT     [Advanced] RMQ inner distance [%d]\n", opt.rmq_inner_dist);
-		fprintf(fp_help, "    --rmq-size-cap INT     [Advanced] RMQ cap size [%d]\n", opt.rmq_size_cap);
-		fprintf(fp_help, "    --bw-long INT     [Advanced] maximum long INT gap length to re-chain the chains. Disabled by default. To enable, set it to larger than --bw [%d]\n", opt.bw_long);
+		fprintf(fp_help, "    --rmq-inner-dist INT     [Advanced] RMQ inner distance [%d]\n", config.opt.rmq_inner_dist);
+		fprintf(fp_help, "    --rmq-size-cap INT     [Advanced] RMQ cap size [%d]\n", config.opt.rmq_size_cap);
+		fprintf(fp_help, "    --bw-long INT     [Advanced] maximum long INT gap length to re-chain the chains. Disabled by default. To enable, set it to larger than --bw [%d]\n", config.opt.bw_long);
 
 		fprintf(fp_help, "\n  DTW Parameters (as introduced in RawAlign):\n");
-		fprintf(fp_help, "    --dtw-evaluate-chains     evaluate chains using DTW. Note, the index must be built using --store-sig for this functionality to work [%s]\n", opt.flag & RI_M_DTW_EVALUATE_CHAINS? "yes" : "no");
-		fprintf(fp_help, "    --dtw-output-cigar     output CIGAR string for DTW [%s]\n", opt.flag & RI_M_DTW_OUTPUT_CIGAR? "yes" : "no");
-		fprintf(fp_help, "    --dtw-border-constraint STR     DTW border constraint: 'global', 'sparse' (i.e., align only between anchors), 'local' [%s]\n", ri_maptopt_dtw_mode_to_string(opt.dtw_border_constraint));
-		fprintf(fp_help, "    --dtw-match-bonus FLOAT     DTW match bonus FLOAT [%g]\n", opt.dtw_match_bonus);
-		
+		fprintf(fp_help, "    --dtw-evaluate-chains     evaluate chains using DTW. Note, the index must be built using --store-sig for this functionality to work [%s]\n", config.opt.flag & RI_M_DTW_EVALUATE_CHAINS? "yes" : "no");
+		fprintf(fp_help, "    --dtw-output-cigar     output CIGAR string for DTW [%s]\n", config.opt.flag & RI_M_DTW_OUTPUT_CIGAR? "yes" : "no");
+		fprintf(fp_help, "    --dtw-border-constraint STR     DTW border constraint: 'global', 'sparse' (i.e., align only between anchors), 'local' [%s]\n", ri_maptopt_dtw_mode_to_string(config.opt.dtw_border_constraint));
+		fprintf(fp_help, "    --dtw-match-bonus FLOAT     DTW match bonus FLOAT [%g]\n", config.opt.dtw_match_bonus);
+
 		fprintf(fp_help, "\n  Mapping Decisions (Mapping and sequencing is stopped after taking any of these decisions):\n");
-		fprintf(fp_help, "    --max-chunks INT     stop mapping (read not mapped) after sequencing INT number of chunks [%u]\n", opt.max_num_chunk);
-		fprintf(fp_help, "    --min-mapq INT     map the read if there is only one chain and its MAPQ > INT [%d]\n", opt.min_mapq);
+		fprintf(fp_help, "    --max-chunks INT     stop mapping (read not mapped) after sequencing INT number of chunks [%u]\n", config.opt.max_num_chunk);
+		fprintf(fp_help, "    --min-mapq INT     map the read if there is only one chain and its MAPQ > INT [%d]\n", config.opt.min_mapq);
 		fprintf(fp_help, "    --disable-adaptive     Disables stopping the read early and rather lets the read to be sequenced fully to make the analysis. This is not activated by default.\n");
-		
+
 		fprintf(fp_help, "\n  Nanopore Parameters:\n");
-		fprintf(fp_help, "    --bp-per-sec INT     DNA molecules transiting through the pore (bp per second) [%u]\n", opt.bp_per_sec);
-		fprintf(fp_help, "    --sample-rate INT     current sample rate in Hz [%u]\n", opt.sample_rate);
-		fprintf(fp_help, "    --chunk-size INT     current samples in a single chunk (by default set to the amount of signals sampled in 1 second) [%u]\n", opt.chunk_size);
-		
-		fprintf(fp_help, "    --seg-window-length1 INT     [Advanced] First window length in segmentation [%u]\n", opt.window_length1);
-		fprintf(fp_help, "    --seg-window-length2 INT     [Advanced] Second window length in segmentation [%u]\n", opt.window_length2);
-		fprintf(fp_help, "    --seg-threshold1 FLOAT     [Advanced] Peak value threshold for the first window in segmentation [%g]\n", opt.threshold1);
-		fprintf(fp_help, "    --seg-threshold2 FLOAT     [Advanced] Peak value threshold for the first window in segmentation [%g]\n", opt.threshold2);
-		fprintf(fp_help, "    --seg-peak-height FLOAT     [Advanced] Peak height than the current signal to confirm the peak point in segmentation [%g]\n", opt.peak_height);
+		fprintf(fp_help, "    --bp-per-sec INT     DNA molecules transiting through the pore (bp per second) [%u]\n", config.opt.bp_per_sec);
+		fprintf(fp_help, "    --sample-rate INT     current sample rate in Hz [%u]\n", config.opt.sample_rate);
+		fprintf(fp_help, "    --chunk-size INT     current samples in a single chunk (by default set to the amount of signals sampled in 1 second) [%u]\n", config.opt.chunk_size);
+
+		fprintf(fp_help, "    --seg-window-length1 INT     [Advanced] First window length in segmentation [%u]\n", config.opt.window_length1);
+		fprintf(fp_help, "    --seg-window-length2 INT     [Advanced] Second window length in segmentation [%u]\n", config.opt.window_length2);
+		fprintf(fp_help, "    --seg-threshold1 FLOAT     [Advanced] Peak value threshold for the first window in segmentation [%g]\n", config.opt.threshold1);
+		fprintf(fp_help, "    --seg-threshold2 FLOAT     [Advanced] Peak value threshold for the first window in segmentation [%g]\n", config.opt.threshold2);
+		fprintf(fp_help, "    --seg-peak-height FLOAT     [Advanced] Peak height than the current signal to confirm the peak point in segmentation [%g]\n", config.opt.peak_height);
 
 		fprintf(fp_help, "\n  Sequence Until Parameters:\n");
 		fprintf(fp_help, "    --sequence-until     Activates Sequence Until and performs real-time relative abundance calculations. The computation will stop as soon as an estimation with high confidence is reached without processing further reads from the set.\n");
-		fprintf(fp_help, "    --threshold FLOAT     outliers are determined if cross-correlation distance > FLOAT [%g]. Sequencing will stop if there are no outliers in the sample of estimations.\n", opt.t_threshold);
-		fprintf(fp_help, "    --n-samples INT     New estimation is tested against INT many previous estimations [%u]\n", opt.tn_samples);
-		fprintf(fp_help, "    --test-frequency INT     Make a new estimation after every INT reads [%u]\n", opt.ttest_freq);
-		fprintf(fp_help, "    --min-reads INT     Minimum number of reads to sequence before making the first estimation [%u]\n", opt.tmin_reads);
-		
+		fprintf(fp_help, "    --threshold FLOAT     outliers are determined if cross-correlation distance > FLOAT [%g]. Sequencing will stop if there are no outliers in the sample of estimations.\n", config.opt.t_threshold);
+		fprintf(fp_help, "    --n-samples INT     New estimation is tested against INT many previous estimations [%u]\n", config.opt.tn_samples);
+		fprintf(fp_help, "    --test-frequency INT     Make a new estimation after every INT reads [%u]\n", config.opt.ttest_freq);
+		fprintf(fp_help, "    --min-reads INT     Minimum number of reads to sequence before making the first estimation [%u]\n", config.opt.tmin_reads);
+
 		fprintf(fp_help, "\n  Input/Output:\n");
 		fprintf(fp_help, "    -o FILE     output mappings to FILE [stdout]\n");
-		fprintf(fp_help, "    -t INT      number of threads [%d]\n", n_threads);
-		fprintf(fp_help, "    --io-thread INT      number of threads allocated for IO operations (i.e., reading from a file) out of all threads that will be used for this run (-t). Only available for S/BLOW5 files for now. INT must be smaller than the overall number of threads (-t) [%d]\n", io_n_threads);
+		fprintf(fp_help, "    -t INT      number of threads [%d]\n", config.n_threads);
+		fprintf(fp_help, "    --io-thread INT      number of threads allocated for IO operations (i.e., reading from a file) out of all threads that will be used for this run (-t). Only available for S/BLOW5 files for now. INT must be smaller than the overall number of threads (-t) [%d]\n", config.io_n_threads);
 		fprintf(fp_help, "    -K NUM      minibatch size for mapping [500M]. Increasing this value may increase thread utilization. If there are many larger FAST5 files, it is recommended to keep this value between 500M - 5G to use less memory while utilizing threads nicely.\n");
 //		fprintf(fp_help, "    -v INT     verbose level [%d]\n", ri_verbose);
 
 		fprintf(fp_help, "\n  Experimental/Debugging Parameters:\n");
 		fprintf(fp_help, "    --out-quantize     	Output the quantized values from raw signals provided as input. Mapping is not performed and the index file is not needed.\n");
 		fprintf(fp_help, "    --no-event-detection  Do not perform event detection. This can be set if your raw signal is already segmented.\n");
-		
+
 		fprintf(fp_help, "\n  Presets:\n");
 		fprintf(fp_help, "    --depletion     Should be used for quickly depleting organisms for use cases that require high precision (e.g., for contamination analysis or relative abundance estimation). Can be used with or without the -x preset (--best-chains 5 --min-mapq 10 --w-threshold 0.5 --min-anchors 2 --min-score 15 --chain-skip-scale 0).\n");
 		fprintf(fp_help, "    --r10     Sets the segmentation parameters for R10.4.1. Can be used with or without the -x preset (-k9 --seg-window-length1 3 --seg-window-length2 6 --seg-threshold1 6.5 --seg-threshold2 4 --seg-peak-height 0.2 --chain-gap-scale 1.2).\n");
@@ -525,46 +521,56 @@ int main(int argc, char *argv[])
 		fprintf(fp_help, "                 - ava-sensitive     	 More sensitive All-vs-all overlapping mode. Can be slightly slower than -ava but likely to generate longer unitigs in downstream asssembly.\n");
 		fprintf(fp_help, "                 - ava-viral     	 All-vs-all overlapping for very small genomes such as viral genomes.\n");
 		fprintf(fp_help, "                 - ava-large     	 All-vs-all overlapping for large genomes of size > 10Gb\n");
-		
+
 		// fprintf(fp_help, "\nSee `man ./rawhash.1' for detailed description of these and other advanced command-line options.\n");
-		return fp_help == stdout? 0 : 1;
+		return config;
 	}
 
-	if(n_threads < io_n_threads){
-		fprintf(stderr, "[ERROR] The overall number of threads (-t [%d]) must NOT be smaller than the number of IO threads (--io-thread [%d).\n", n_threads, io_n_threads);
-		return 1;
+	if(config.n_threads < config.io_n_threads){
+		fprintf(stderr, "[ERROR] The overall number of threads (-t [%d]) must NOT be smaller than the number of IO threads (--io-thread [%d).\n", config.n_threads, config.io_n_threads);
+		return config;
 	}
 
-	if(ipt.w && ipt.n){
-		fprintf(stderr, "[ERROR] minimizer window 'w' ('%d') and BLEND 'neighbor' ('%d') values cannot be set together. At least one of them must be zero to enable one of the seeding options: %s\n", ipt.w, ipt.n, strerror(errno));
-		return 1;
+	if(config.ipt.w && config.ipt.n){
+		fprintf(stderr, "[ERROR] minimizer window 'w' ('%d') and BLEND 'neighbor' ('%d') values cannot be set together. At least one of them must be zero to enable one of the seeding options: %s\n", config.ipt.w, config.ipt.n, strerror(errno));
+		return config;
 	}
 
-	idx_rdr = ri_idx_reader_open(argv[o.ind], &ipt, fnw);
+	config.valid = true;
+	return config;
+}
+
+int main(int argc, char *argv[]) {
+	ri_idx_reader_t *idx_rdr;
+	ri_idx_t *ri;
+	config_t config = parse_options(argc, argv);
+	if (!config.valid) return 1;
+
+	idx_rdr = ri_idx_reader_open(argv[config.o.ind], &config.ipt, config.fnw);
 	if (idx_rdr == 0) {
-		fprintf(stderr, "[ERROR] failed to open file '%s': %s\n", argv[o.ind], strerror(errno));
+		fprintf(stderr, "[ERROR] failed to open file '%s': %s\n", argv[config.o.ind], strerror(errno));
 		return 1;
 	}
 
-	if (!idx_rdr->is_idx && fnw == 0 && argc - o.ind < 2 && !(ipt.flag&RI_I_OUT_QUANTIZE)) {
+	if (!idx_rdr->is_idx && config.fnw == 0 && argc - config.o.ind < 2 && !(config.ipt.flag&RI_I_OUT_QUANTIZE)) {
 		fprintf(stderr, "[ERROR] missing input: please specify a query FAST5/SLOW5/POD5 file(s) to map or option -d to store the index in a file before running the mapping\n");
 		ri_idx_reader_close(idx_rdr);
 		return 1;
 	}
 
-	
+
 	ri_pore_t pore;
 	pore.pore_vals = NULL;
 	pore.pore_inds = NULL;
 	pore.max_val = -5000.0;
 	pore.min_val = 5000.0;
-	if(!(ipt.flag&RI_I_OUT_QUANTIZE)){
-		if((!idx_rdr->is_idx && fpore == 0) && !(!(ipt.flag&RI_I_REV_QUERY) && ipt.flag&RI_I_SIG_TARGET)){
+	if(!(config.ipt.flag&RI_I_OUT_QUANTIZE)){
+		if((!idx_rdr->is_idx && config.fpore == 0) && !(!(config.ipt.flag&RI_I_REV_QUERY) && config.ipt.flag&RI_I_SIG_TARGET)){
 			fprintf(stderr, "[ERROR] missing input: please specify a pore model file with -p when generating the index from a sequence file\n");
 			ri_idx_reader_close(idx_rdr);
 			return 1;
-		}else if(!idx_rdr->is_idx && fpore){
-			load_pore(fpore, ipt.k, ipt.lev_col, &pore);
+		}else if(!idx_rdr->is_idx && config.fpore){
+			load_pore(config.fpore, config.ipt.k, config.ipt.lev_col, &pore);
 			if(!pore.pore_vals){
 				fprintf(stderr, "[ERROR] cannot parse the k-mer pore model file. Please see the example k-mer model files provided in the RawHash repository.\n");
 				ri_idx_reader_close(idx_rdr);
@@ -573,27 +579,27 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	while ((ri = ri_idx_reader_read(idx_rdr, &pore, n_threads, io_n_threads)) != 0) {
+	while ((ri = ri_idx_reader_read(idx_rdr, &pore, config.n_threads, config.io_n_threads)) != 0) {
 		int ret;
 		if (ri_verbose >= 3)
 			fprintf(stderr, "[M::%s::%.3f*%.2f] loaded/built the index for %d target sequence(s)\n",
 					__func__, ri_realtime() - ri_realtime0, ri_cputime() / (ri_realtime() - ri_realtime0), ri->n_seq);
-		if (argc != o.ind + 1) ri_mapopt_update(&opt, ri);
+		if (argc != config.o.ind + 1) ri_mapopt_update(&config.opt, ri);
 		if (ri_verbose >= 3) ri_idx_stat(ri);
-		if (argc - (o.ind + 1) == 0) {
+		if (argc - (config.o.ind + 1) == 0) {
 			fprintf(stderr, "[INFO] No files to query index on. Only the index is constructed.\n");
 			ri_idx_destroy(ri);
 			continue; // no query files, just creating the index
 		}
 		ret = 0;
-		// if (!(opt.flag & MM_F_FRAG_MODE)) { //TODO: enable frag mode directly from options
+		// if (!(config.opt.flag & MM_F_FRAG_MODE)) { //TODO: enable frag mode directly from options
 		// for (i = o.ind + 1; i < argc; ++i) {
-		// 	ret = ri_map_file(ri, argv[i], &opt, n_threads, io_n_threads);
+		// 	ret = ri_map_file(ri, argv[i], &config.opt, n_threads, io_n_threads);
 		// 	if (ret < 0) break;
 		// }
 		// }
 		// else { //TODO: enable frag mode directly from options
-			ret = ri_map_file_frag(ri, argc - (o.ind + 1), (const char**)&argv[o.ind + 1], &opt, n_threads, io_n_threads);
+			ret = ri_map_file_frag(ri, argc - (config.o.ind + 1), (const char**)&argv[config.o.ind + 1], &config.opt, config.n_threads, config.io_n_threads);
 		// }
 		ri_idx_destroy(ri);
 		if (ret < 0) {
