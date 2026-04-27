@@ -13,6 +13,8 @@
 #include <math.h>
 #include <float.h>  // for FLT_MAX
 
+#include "rawhash.h"
+
 #ifdef PROFILERH
 double ri_filereadtime = 0.0;
 double ri_signaltime = 0.0;
@@ -871,4 +873,172 @@ int ri_map_file_frag(const ri_idx_t *idx,
 	rh_kv_destroy(fnames);
 
 	return 0;
+}
+
+/**
+ * Map a single raw nanopore signal (provided as a float vector) to the reference index.
+ * This is a single-threaded convenience wrapper around ri_map_frag that mirrors the
+ * chunk-based adaptive mapping logic of map_worker_for, but without file I/O.
+ *
+ * @param signal  Raw signal samples
+ * @param idx     Loaded reference index
+ * @param opt     Mapping options
+ * @return        Heap-allocated ri_reg1_t with mapping results; caller must free maps[] and the struct itself.
+ */
+ri_reg1_t* map_signal(std::vector<float> &signal, const ri_idx_t *idx, const ri_mapopt_t *opt) {
+	ri_tbuf_t *b = ri_tbuf_init();
+	ri_reg1_t *reg0 = (ri_reg1_t*)calloc(1, sizeof(ri_reg1_t));
+	reg0->prev_anchors = NULL; reg0->creg = NULL; reg0->events = NULL;
+	reg0->offset = 0; reg0->n_prev_anchors = 0; reg0->n_cregs = 0;
+	reg0->n_maps = 0;
+
+	const char *qname = "signal";
+	uint32_t qlen = (uint32_t)signal.size();
+	const float *sig = signal.data();
+
+	uint32_t l_chunk = (opt->chunk_size > qlen || (opt->flag & RI_M_NO_ADAPTIVE)) ? qlen : opt->chunk_size;
+	uint32_t max_chunk = (opt->flag & RI_M_NO_ADAPTIVE) ? 1 : opt->max_num_chunk;
+	uint32_t s_qs, s_qe;
+	uint32_t c_count = 0;
+
+	double t = ri_realtime();
+	double mean_sum = 0, std_dev_sum = 0;
+	uint32_t n_events_sum = 0;
+
+	for (s_qs = c_count = 0; s_qs < qlen && c_count < max_chunk; s_qs += l_chunk, ++c_count) {
+		s_qe = s_qs + l_chunk;
+		if (s_qe > qlen) s_qe = qlen;
+
+		if (reg0->creg) { free(reg0->creg); reg0->creg = NULL; reg0->n_cregs = 0; }
+
+		ri_map_frag(idx, s_qe - s_qs, sig + s_qs, reg0, b, opt, qname, &mean_sum, &std_dev_sum, &n_events_sum);
+
+		int n_chains = (opt->flag & RI_M_ALL_CHAINS || reg0->n_cregs < 1) ? reg0->n_cregs : 1;
+
+		if (reg0->n_cregs == 1 &&
+			((reg0->creg[0].mapq >= opt->min_mapq) ||
+			 (opt->flag & RI_M_DTW_EVALUATE_CHAINS && reg0->creg[0].alignment_score >= opt->dtw_min_score))) {
+			reg0->n_maps++;
+			reg0->maps = (ri_map_t*)ri_krealloc(0, reg0->maps, reg0->n_maps * sizeof(ri_map_t));
+			reg0->maps[reg0->n_maps - 1].c_id = 0;
+			break;
+		}
+
+		float meanC = 0, meanQ = 0;
+		for (int32_t c_ind = 0; c_ind < reg0->n_cregs; ++c_ind) {
+			meanC += reg0->creg[c_ind].score;
+			meanQ += reg0->creg[c_ind].mapq;
+		}
+		if (reg0->n_cregs > 0) { meanC /= reg0->n_cregs; meanQ /= reg0->n_cregs; }
+
+		for (int ic = 0; ic < n_chains; ++ic) {
+			float r_bestma = 0.0f, r_bestmq = 0.0f, r_bestmc = 0.0f, r_bestq = 0.0f;
+			float bestQ = reg0->creg[ic].mapq;
+			float bestC = reg0->creg[ic].score;
+			float weighted_sum = 0.0f;
+
+			if (!(opt->flag & RI_M_ALL_CHAINS)) {
+				if (opt->flag & RI_M_DTW_EVALUATE_CHAINS) {
+					float bestA = reg0->creg[ic].alignment_score;
+					if (n_chains == 1) {
+						uint32_t best_ind = 0;
+						for (int j = 1; j < reg0->n_cregs; ++j) {
+							if (reg0->creg[j].alignment_score > bestA) {
+								bestA = reg0->creg[j].alignment_score;
+								best_ind = j;
+							}
+						}
+						ic = best_ind;
+						bestQ = reg0->creg[ic].mapq;
+						bestC = reg0->creg[ic].score;
+					}
+					if (bestA >= opt->dtw_min_score) {
+						r_bestma = (bestA > 0) ? (bestA / 50.0f) : 0.0f; if (r_bestma < 0) r_bestma = 0.0f;
+						r_bestmq = (bestQ > 0) ? (1.0f - (meanQ / bestQ)) : 0.0f; if (r_bestmq < 0) r_bestmq = 0.0f;
+						r_bestmc = (bestC > 0) ? (1.0f - (meanC / bestC)) : 0.0f; if (r_bestmc < 0) r_bestmc = 0.0f;
+						weighted_sum = opt->w_bestma * r_bestma + opt->w_bestmq * r_bestmq + opt->w_bestmc * r_bestmc;
+					}
+				} else {
+					r_bestq = (bestQ > 0) ? (bestQ / 30.0f) : 0.0f; if (r_bestq > 1.0f) r_bestq = 1.0f;
+					r_bestmq = (bestQ > 0) ? (1.0f - (meanQ / bestQ)) : 0.0f; if (r_bestmq < 0) r_bestmq = 0.0f;
+					r_bestmc = (bestC > 0) ? (1.0f - (meanC / bestC)) : 0.0f; if (r_bestmc < 0) r_bestmc = 0.0f;
+					weighted_sum = opt->w_bestq * r_bestq + opt->w_bestmq * r_bestmq + opt->w_bestmc * r_bestmc;
+				}
+			}
+
+			if (weighted_sum >= opt->w_threshold ||
+				(opt->flag & RI_M_ALL_CHAINS && reg0->creg[ic].score >= opt->min_chaining_score2)) {
+				reg0->n_maps++;
+				reg0->maps = (ri_map_t*)ri_krealloc(0, reg0->maps, reg0->n_maps * sizeof(ri_map_t));
+				reg0->maps[reg0->n_maps - 1].c_id = ic;
+			}
+		}
+
+		if (reg0->n_maps > 0) break;
+	}
+
+	double mapping_time = ri_realtime() - t; (void)mapping_time;
+
+	if (c_count > 0 && (s_qs >= qlen || c_count == max_chunk)) --c_count;
+
+	float read_position_scale = (reg0->offset == 0) ? 0.0f :
+		(opt->sample_per_base == 0) ? 0.0f :
+		((float)(c_count + 1) * l_chunk / reg0->offset) / opt->sample_per_base;
+
+	mm_reg1_t *chains = reg0->creg;
+	if (!chains) reg0->n_cregs = 0;
+
+	if (reg0->n_maps == 0 && reg0->creg && reg0->creg[0].mapq > opt->min_mapq) {
+		reg0->n_maps++;
+		reg0->maps = (ri_map_t*)ri_krealloc(0, reg0->maps, reg0->n_maps * sizeof(ri_map_t));
+		reg0->maps[reg0->n_maps - 1].c_id = 0;
+	}
+
+	reg0->read_id = 0;
+	reg0->read_name = qname;
+
+	if (reg0->n_maps == 0) {
+		reg0->maps = (ri_map_t*)ri_kcalloc(0, 1, sizeof(ri_map_t));
+		reg0->maps[0].read_length = (idx->flag & RI_I_SIG_TARGET) ? reg0->offset :
+			(uint32_t)(read_position_scale * reg0->offset);
+		reg0->maps[0].c_id = 0;
+		reg0->maps[0].ref_id = 0;
+		reg0->maps[0].read_start_position = 0;
+		reg0->maps[0].read_end_position = 0;
+		reg0->maps[0].fragment_start_position = 0;
+		reg0->maps[0].fragment_length = 0;
+		reg0->maps[0].mapq = 0;
+		reg0->maps[0].rev = 0;
+		reg0->maps[0].mapped = 0;
+		reg0->maps[0].tags = nullptr;
+	} else {
+		for (uint32_t m = 0; m < reg0->n_maps; ++m) {
+			uint32_t c_id = reg0->maps[m].c_id;
+			reg0->maps[m].read_length = (idx->flag & RI_I_SIG_TARGET) ? reg0->offset :
+				(uint32_t)(read_position_scale * chains[c_id].qe);
+			reg0->maps[m].ref_id = chains[c_id].rid;
+			reg0->maps[m].read_start_position = (idx->flag & RI_I_SIG_TARGET) ? chains[c_id].qs :
+				(uint32_t)(read_position_scale * chains[c_id].qs);
+			reg0->maps[m].read_end_position = (idx->flag & RI_I_SIG_TARGET) ? chains[c_id].qe :
+				(uint32_t)(read_position_scale * chains[c_id].qe);
+			if (idx->flag & RI_I_SIG_TARGET)
+				reg0->maps[m].fragment_start_position = chains[c_id].rev ?
+					(uint32_t)(idx->sig[chains[c_id].rid].l_sig + 1 - chains[c_id].re) : chains[c_id].rs;
+			else
+				reg0->maps[m].fragment_start_position = chains[c_id].rev ?
+					(uint32_t)(idx->seq[chains[c_id].rid].len + 1 - chains[c_id].re) : chains[c_id].rs;
+			reg0->maps[m].fragment_length = (uint32_t)(chains[c_id].re - chains[c_id].rs + 1);
+			reg0->maps[m].mapq = chains[c_id].mapq;
+			reg0->maps[m].rev = (chains[c_id].rev == 1) ? 1 : 0;
+			reg0->maps[m].mapped = 1;
+			reg0->maps[m].tags = nullptr;
+		}
+	}
+
+	if (reg0->prev_anchors) { ri_kfree(b->km, reg0->prev_anchors); reg0->prev_anchors = NULL; reg0->n_prev_anchors = 0; }
+	if (reg0->creg) { free(reg0->creg); reg0->creg = NULL; reg0->n_cregs = 0; }
+	if (reg0->events) { ri_kfree(b->km, reg0->events); reg0->events = NULL; reg0->offset = 0; }
+
+	ri_tbuf_destroy(b);
+	return reg0;
 }

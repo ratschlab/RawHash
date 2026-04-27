@@ -31,7 +31,7 @@ endif()
 
 # Define the Executable and Sources
 set(RAW_HASH_SOURCES
-        kthread.c kalloc.c bseq.cpp roptions.c sequence_until.c
+        kthread.c kalloc.c bseq.cpp roptions.cpp sequence_until.c
         rutils.cpp rsig.cpp revent.cpp rsketch.c rindex.cpp
         lchain.cpp rseed.cpp rmap.cpp dtw.cpp hit.cpp
 )
@@ -47,7 +47,7 @@ target_include_directories(rawhash2_lib PUBLIC
 )
 
 # System Libraries
-target_link_libraries(rawhash2_lib PRIVATE
+target_link_libraries(rawhash2_lib PUBLIC
         slow5
         ZLIB::ZLIB
         dl
@@ -56,4 +56,7 @@ target_link_libraries(rawhash2_lib PRIVATE
 )
 
 add_executable(rawhash2 main.cpp)
-target_link_libraries(rawhash2 PRIVATE rawhash2_lib)
+target_link_libraries(rawhash2 PUBLIC rawhash2_lib)
+
+add_executable(wrapper_test wrapper.cpp)
+target_link_libraries(wrapper_test PUBLIC rawhash2_lib)

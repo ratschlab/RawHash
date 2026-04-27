@@ -96,4 +96,14 @@ int ri_map_file_frag(const ri_idx_t *idx, int n_segs, const char **fn, const ri_
 #ifdef __cplusplus
 }
 #endif
+
+#ifdef __cplusplus
+#include <vector>
+/**
+ * Map a single raw nanopore signal to the reference index (single-threaded).
+ * Caller must free reg->maps[] and then the returned struct.
+ */
+ri_reg1_t* map_signal(std::vector<float> &signal, const ri_idx_t *idx, const ri_mapopt_t *opt);
+#endif
+
 #endif //RMAP_H

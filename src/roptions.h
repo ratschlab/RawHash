@@ -1,9 +1,12 @@
 #include <stdint.h>
 #include <string.h> //for memset
+#include "ketopt.h"
 // #include "rindex.h"
 
 #ifndef ROPTIONS_H
 #define ROPTIONS_H
+
+#define RH_VERSION "2.1"
 
 #define RI_I_NAIVE		0x1
 #define RI_I_MIN		0x2
@@ -157,6 +160,18 @@ void ri_idxopt_init(ri_idxopt_t *opt);
  * 
  */
 void ri_mapopt_init(ri_mapopt_t *opt);
+
+
+struct config_t {
+	ketopt_t o = KETOPT_INIT;
+	ri_mapopt_t opt = {0};
+	ri_idxopt_t ipt = {0};
+	char *fnw = nullptr, *fpore = nullptr;
+	int n_threads = 3, io_n_threads = 1;
+	bool valid = false;
+};
+
+config_t parse_options(int argc, char *argv[]);
 
 #ifdef __cplusplus
 }
