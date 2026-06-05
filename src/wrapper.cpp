@@ -5,11 +5,24 @@
 #include <string>
 #include <vector>
 #include <stdexcept>
-#include "slow5/slow5.h"
+#include <pybind11/detail/descr.h>
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+#include <pybind11/numpy.h>
+#include "parlay/primitives.h"
+#include "parlay/sequence.h"
+#include "parlay/io.h"
 
 #include "rawhash.h"
 
 using namespace std;
+namespace py = pybind11;
+
+static inline char* to_c_str(std::string &s) {
+    auto cs = new char[s.size()+1];
+    strcpy(cs, s.c_str());
+    return cs;
+}
 
 struct Alignment {
     string ctg;
@@ -26,18 +39,64 @@ struct Alignment {
 
 const Alignment NO_ALIGNMENT = {"*", true, 0, 0.0f, 0};
 
+struct Request {
+    int channel = 0;
+    string id;
+    py::array_t<float> signal;
+    Request() = default;
+    Request(int channel, string &id, py::array_t<float> &signal): channel(channel), id(id), signal(signal) {}
+};
+
+struct Response {
+    int channel = 0;
+    string id;
+    Alignment alignment;
+    Response() = default;
+    Response(int channel, string &id, Alignment &alignment): channel(channel), id(id), alignment(alignment) {}
+};
+
+struct ResponseGenerator {
+    parlay::sequence<Response> responses;
+    explicit ResponseGenerator(parlay::sequence<Response> &responses): responses(responses) {}
+    Response next() {
+        if (responses.empty())
+            throw py::stop_iteration();
+        else {
+            auto response = responses.back();
+            responses.pop_back();
+            return response;
+        }
+    }
+    ResponseGenerator& iter() {
+        return *this;
+    }
+};
+
 struct Index {
     config_t config;
-    ri_idx_reader_t *idx_rdr;
-    ri_idx_t *ri;
+    ri_idx_reader_t *idx_rdr = nullptr;
+    ri_idx_t *ri = nullptr;
     ri_pore_t pore{};
 
     explicit Index(vector<char*> &argv) {
-        config = parse_options(argv.size(), argv.data());
+        load(argv.size(), argv.data());
+    }
+
+    explicit Index(const py::list &args) {
+        vector<char*> argv;
+        for (auto& arg: args) {
+            auto s = arg.cast<string>();
+            argv.push_back(to_c_str(s));
+        }
+        load(argv.size(), argv.data());
+    }
+
+    void load(int argc, char *argv[]) {
+        config = parse_options(argc, argv);
         if (!config.valid) throw std::invalid_argument("Config is invalid.");
         idx_rdr = ri_idx_reader_open(argv[config.o.ind], &config.ipt, config.fnw);
         if (idx_rdr == 0) {
-            fprintf(stderr, "[ERROR] failed to open file '%s': %s\n", argv[config.o.ind], strerror(errno));
+            log_error("Failed to open file '%s': %s", argv[config.o.ind], strerror(errno));
             exit(1);
         }
         pore.pore_vals = nullptr;
@@ -45,17 +104,17 @@ struct Index {
         pore.max_val = -5000.0;
         pore.min_val = 5000.0;
         ri = ri_idx_reader_read(idx_rdr, &pore, config.n_threads, config.io_n_threads);
-        if (ri == 0) {
-            fprintf(stderr, "[ERROR] Could not load index from file '%s': %s\n", argv[config.o.ind], strerror(errno));
-            exit(1);
-        }
+        if (ri == 0)
+            log_error("Could not load index from file '%s': %s", argv[config.o.ind], strerror(errno));
         ri_mapopt_update(&config.opt, ri);
-        ri_idx_stat(ri);
-        fprintf(stderr, "Index is ready..\n");
     }
 
-    Alignment query(std::vector<float> &signal) {
-        ri_reg1_t *reg = map_signal(signal, ri, &config.opt);
+    void validate() const {
+        ri_idx_stat(ri);
+    }
+
+    Alignment query(py::array_t<float> &signal) {
+        ri_reg1_t *reg = map_signal(signal.data(), signal.size(), ri, &config.opt);
         if (!reg) return NO_ALIGNMENT;
 
         Alignment result = NO_ALIGNMENT;
@@ -72,58 +131,52 @@ struct Index {
         free(reg);
         return result;
     }
+
+    ResponseGenerator query_stream(const py::iterator& reads) {
+        parlay::sequence<Request> requests;
+        for (auto &read: reads) {
+            auto request = read.cast<Request>();
+            requests.push_back(request);
+        }
+        auto responses = parlay::tabulate(requests.size(), [&](size_t i) {
+            auto alignment = query(requests[i].signal);
+            return Response(requests[i].channel, requests[i].id, alignment);
+        });
+        return ResponseGenerator(responses);
+    }
 };
 
-#define TO_PICOAMPS(RAW_VAL,DIGITISATION,OFFSET,RANGE) (((RAW_VAL)+(OFFSET))*((RANGE)/(DIGITISATION)))
+PYBIND11_MODULE(_core, m) {
+    py::class_<Alignment>(m, "Alignment")
+            .def(py::init<>())  // Default constructor
+            .def(py::init<const char*, bool, int, float, int>(),  // Parameterized constructor
+                 py::arg("header"), py::arg("fwd"), py::arg("start"),
+                 py::arg("pres_frac"), py::arg("qry_len"))
+            .def_readonly("ctg", &Alignment::ctg)
+            .def_readonly("r_st", &Alignment::r_st)
+            .def_readonly("r_en", &Alignment::r_en)
+            .def_readonly("strand", &Alignment::strand)
+            .def_readonly("pres_frac", &Alignment::pres_frac);
 
-int main(int argc, char **argv) {
-    // create a vector from the argv
-    std::vector<char*> args(argv, argv + argc);
-    auto index = Index(args);
-    sleep(1);
-    const char* FILE_PATH = "/data/NASExperiments/data/simulated/Zymo/signals/Sigs1_180.blow5";
+    py::class_<Index>(m, "Index")
+            .def(py::init<const py::list&>())
+            .def("validate", &Index::validate)
+            .def("query", &Index::query)
+            .def("query_stream", &Index::query_stream);
 
-    slow5_file_t *sp = slow5_open(FILE_PATH,"r");
-    if(sp==NULL){
-        fprintf(stderr,"Error in opening file\n");
-        exit(EXIT_FAILURE);
-    }
+    py::class_<Request>(m, "Request")
+            .def(py::init<int, string&, py::array_t<float> &>(), py::arg("channel"), py::arg("id"), py::arg("signal"))
+            .def_readwrite("channel", &Request::channel)
+            .def_readwrite("id", &Request::id)
+            .def_readwrite("signal", &Request::signal);
 
-    slow5_rec_t *rec = NULL; //slow5 record to be read
-    int ret=0; //for return value
+    py::class_<Response>(m, "Response")
+            .def(py::init<int, string&, Alignment&>(), py::arg("channel"), py::arg("id"), py::arg("alignment"))
+            .def_readwrite("channel", &Response::channel)
+            .def_readwrite("id", &Response::id)
+            .def_readwrite("alignment", &Response::alignment);
 
-    int n_aligned = 0, n_read = 0;
-
-    //iterate through the file until end
-    vector<float> signal;
-    printf("%10s %10s\n", "Aligned", "Unaligned");
-    while((ret = slow5_get_next(&rec,sp)) >= 0){
-        // printf("%s\t",rec->read_id);
-        uint64_t len_raw_signal = rec->len_raw_signal;
-        signal.resize(len_raw_signal);
-        for(uint64_t i=0;i<len_raw_signal;i++){ //iterate through the raw signal and print in picoamperes
-            signal[i] = TO_PICOAMPS(rec->raw_signal[i],rec->digitisation,rec->offset,rec->range);
-            // printf("%f ",pA);
-        }
-        // printf("\n");
-        n_read++;
-        auto alignment = index.query(signal);
-        if (alignment.valid()) n_aligned++;
-        if (n_read % 100 == 0) {
-            printf("\r%10d %10d", n_aligned, n_read - n_aligned);
-            fflush(stdout);
-        }
-    }
-    printf("\n");
-
-    if(ret != SLOW5_ERR_EOF){  //check if proper end of file has been reached
-        fprintf(stderr,"Error in slow5_get_next. Error code %d\n",ret);
-        exit(EXIT_FAILURE);
-    }
-
-    //free the SLOW5 record
-    slow5_rec_free(rec);
-
-    //close the SLOW5 file
-    slow5_close(sp);
+    py::class_<ResponseGenerator>(m, "ResponseGenerator")
+            .def("__iter__", &ResponseGenerator::iter)
+            .def("__next__", &ResponseGenerator::next);
 }

@@ -43,7 +43,7 @@ RawHash performs real-time mapping of nanopore raw signals. When the prefix of r
 * Clone the code from its GitHub repository (`--recursive` must be used):
 
 ```bash
-git clone --recursive https://github.com/CMU-SAFARI/RawHash.git rawhash2
+git clone --recursive https://github.com/ratschlab/RawHash.git rawhash2
 ```
 
 * Compile (Make sure you have a C++ compiler and GNU make):
@@ -53,6 +53,17 @@ cd rawhash2 && make
 ```
 
 If the compilation is successful, the path to the binary will be `bin/rawhash2`.
+
+## Installing the python binding
+
+```bash
+sudo apt install python3-dev  # Ubuntu/Debian
+# brew install python            # macOS (headers included)
+git clone --recursive https://github.com/ratschlab/RawHash.git rawhash2
+cd rawhash2
+make
+pip install .
+```
 
 ## Compiling with HDF5, SLOW5, and POD5
 

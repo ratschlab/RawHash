@@ -880,12 +880,13 @@ int ri_map_file_frag(const ri_idx_t *idx,
  * This is a single-threaded convenience wrapper around ri_map_frag that mirrors the
  * chunk-based adaptive mapping logic of map_worker_for, but without file I/O.
  *
- * @param signal  Raw signal samples
+ * @param sig	  Raw signal
+ * @param qlen	  Length of the signal
  * @param idx     Loaded reference index
  * @param opt     Mapping options
  * @return        Heap-allocated ri_reg1_t with mapping results; caller must free maps[] and the struct itself.
  */
-ri_reg1_t* map_signal(std::vector<float> &signal, const ri_idx_t *idx, const ri_mapopt_t *opt) {
+ri_reg1_t* map_signal(const float *sig, const uint32_t qlen, const ri_idx_t *idx, const ri_mapopt_t *opt) {
 	ri_tbuf_t *b = ri_tbuf_init();
 	ri_reg1_t *reg0 = (ri_reg1_t*)calloc(1, sizeof(ri_reg1_t));
 	reg0->prev_anchors = NULL; reg0->creg = NULL; reg0->events = NULL;
@@ -893,8 +894,6 @@ ri_reg1_t* map_signal(std::vector<float> &signal, const ri_idx_t *idx, const ri_
 	reg0->n_maps = 0;
 
 	const char *qname = "signal";
-	uint32_t qlen = (uint32_t)signal.size();
-	const float *sig = signal.data();
 
 	uint32_t l_chunk = (opt->chunk_size > qlen || (opt->flag & RI_M_NO_ADAPTIVE)) ? qlen : opt->chunk_size;
 	uint32_t max_chunk = (opt->flag & RI_M_NO_ADAPTIVE) ? 1 : opt->max_num_chunk;

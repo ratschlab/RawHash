@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.14) # FetchContent requires 3.11+
 include(FetchContent)
 
 # Project-wide Compiler Flags
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Handle DEBUG/PROFILE via standard CMake build types
@@ -58,5 +58,24 @@ target_link_libraries(rawhash2_lib PUBLIC
 add_executable(rawhash2 main.cpp)
 target_link_libraries(rawhash2 PUBLIC rawhash2_lib)
 
-add_executable(wrapper_test wrapper.cpp)
-target_link_libraries(wrapper_test PUBLIC rawhash2_lib)
+pybind11_add_module(_core wrapper.cpp ${RAW_HASH_SOURCES})
+target_compile_options(_core PRIVATE -fpermissive -mavx)
+target_include_directories(_core PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${SLOW5_INC}
+        ${POD5_INCLUDE_DIR}
+)
+target_link_libraries(_core PUBLIC -mavx pybind11::headers
+        slow5
+        ZLIB::ZLIB
+        dl
+        m
+        pthread
+)
+#set_target_properties(_core PROPERTIES
+#    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/src/pyrawhash"
+#    BUILD_RPATH "${CMAKE_SOURCE_DIR}"
+#    INSTALL_RPATH "$ORIGIN/../../.."
+#)
+install(TARGETS _core DESTINATION pyrawhash)
+#install(TARGETS rawhash2_lib DESTINATION pyrawhash)
