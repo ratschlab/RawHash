@@ -84,6 +84,7 @@ test/*.idx
 src/*.o
 
 extern/pod5*
+extern/hdf5*
 
 test/evaluation/rawsamble/*/*.err
 test/evaluation/rawsamble/*/*.out
@@ -102,3 +103,9 @@ extern/tensorflow/
 
 test/evaluation/read_mapping/*_parameters/
 test/evaluation/read_mapping/s_modify.py
+
+.idea
+**build**
+**.egg-info
+**.so
+**.a
