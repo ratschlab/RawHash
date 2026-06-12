@@ -131,8 +131,7 @@ class Aligner:
             for result in _basecalls:
                 id = result.read_id
                 metadata[id] = result
-                seq = result.seq
-                if not seq:
+                if result.basecall_data is None:
                     skipped.append(result)
                     continue
                 yield Request(channel=result.channel, id=id, signal=result.basecall_data)

@@ -41,8 +41,8 @@ class Caller:
         daq_values = _DefaultDAQValues if daq_values is None else daq_values
         for channel, read in reads:
             raw_data=np.frombuffer(read.raw_data, signal_dtype)
-            daq_offset=daq_values[channel].offset,
-            daq_scaling=daq_values[channel].scaling,
+            daq_offset=daq_values[channel].offset
+            daq_scaling=daq_values[channel].scaling
             if signal_dtype.kind != 'f':
                 raw_data = (raw_data + daq_offset) * daq_scaling
             yield Result(channel=channel, read_id=read.id, seq='', basecall_data=raw_data)
