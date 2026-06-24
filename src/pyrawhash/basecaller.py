@@ -45,7 +45,7 @@ class Caller:
             daq_scaling=daq_values[channel].scaling
             if signal_dtype.kind != 'f':
                 raw_data = (raw_data + daq_offset) * daq_scaling
-            yield Result(channel=channel, read_id=read.id, seq='', basecall_data=raw_data)
+            yield Result(channel=channel, read_id=read.id, seq='N', basecall_data=raw_data)
 
     def describe(self) -> str:
         return "This caller does nothing except appending the raw signal to Result.basecall_data"

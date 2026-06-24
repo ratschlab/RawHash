@@ -47,6 +47,12 @@ struct Request {
     Request(int channel, string &id, py::array_t<float> &signal): channel(channel), id(id), signal(signal) {}
 };
 
+struct RawRequest {
+    int channel;
+    string id;
+    vector<float> signal;   // plain C++ — no Python reference kept
+};
+
 struct Response {
     int channel = 0;
     string id;
@@ -57,7 +63,7 @@ struct Response {
 
 struct ResponseGenerator {
     parlay::sequence<Response> responses;
-    explicit ResponseGenerator(parlay::sequence<Response> &responses): responses(responses) {}
+    explicit ResponseGenerator(parlay::sequence<Response> &&responses): responses(std::move(responses)) {}
     Response next() {
         if (responses.empty())
             throw py::stop_iteration();
@@ -132,18 +138,47 @@ struct Index {
         return result;
     }
 
+    Alignment query_raw(vector<float> &signal) {
+        ri_reg1_t *reg = map_signal(signal.data(), signal.size(), ri, &config.opt);
+        if (!reg) return NO_ALIGNMENT;
+
+        Alignment result = NO_ALIGNMENT;
+        if (reg->n_maps > 0 && reg->maps[0].mapped) {
+            const ri_map_t &m = reg->maps[0];
+            const char *header = (ri->flag & RI_I_SIG_TARGET)
+                ? ri->sig[m.ref_id].name
+                : ri->seq[m.ref_id].name;
+            result = Alignment(header, !m.rev, (int)m.fragment_start_position,
+                               (float)m.mapq / 60.0f, (int)m.read_end_position);
+        }
+
+        if (reg->maps) { free(reg->maps); reg->maps = nullptr; }
+        free(reg);
+        return result;
+    }
+
     ResponseGenerator query_stream(const py::iterator& reads) {
-        parlay::sequence<Request> requests;
-        for (auto &read: reads) {
-            auto request = read.cast<Request>();
-            requests.push_back(request);
+	    std::vector<RawRequest> requests;
+        {
+            py::gil_scoped_acquire gil;
+            for (auto &read: reads) {
+                auto req = read.cast<Request>();
+                auto buf = req.signal.request();
+                auto *ptr = static_cast<float*>(buf.ptr);
+                requests.push_back({
+                    req.channel,
+                    req.id,
+                    vector<float>(ptr, ptr + buf.size)
+                });
+            }
         }
         auto responses = parlay::tabulate(requests.size(), [&](size_t i) {
-            auto alignment = query(requests[i].signal);
+            auto alignment = query_raw(requests[i].signal);
             return Response(requests[i].channel, requests[i].id, alignment);
         });
-        return ResponseGenerator(responses);
+        return ResponseGenerator(std::move(responses));
     }
+
 };
 
 PYBIND11_MODULE(_core, m) {

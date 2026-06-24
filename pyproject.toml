@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "pyrawhash"
-version = "1.0.0.dev5"
+version = "1.0.0.dev7"
 description = "Python port of rawhash"
 readme = "README.md"
 authors = [
